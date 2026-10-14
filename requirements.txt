@@ -1,5 +1,7 @@
 google-genai
 pynput
+pyobjc-framework-ApplicationServices; sys_platform == "darwin"
+pyobjc-framework-Quartz; sys_platform == "darwin"
 pyperclip
 python-dotenv
 pytest

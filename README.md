@@ -2,16 +2,18 @@
 
 在任意文本框里 `Ctrl+A` 全选，然后在 400 ms 内按下面的组合，选中的文字会被原地替换成简洁、专业的版本（Google Gemini Flash-Lite）。不满意直接 `Ctrl+Z`。
 
-| 热键 | 输出语言 |
-|---|---|
-| 按住 `Ctrl`，按 `C` `C` | 中文（简体），不管输入是什么语言；PR、deadline 这类常用英文术语可以保留 |
-| 按住 `Ctrl`，按 `C` `E` | 英文，不管输入是什么语言 |
+| 热键（Windows） | 热键（macOS） | 输出语言 |
+|---|---|---|
+| 按住 `Ctrl`，按 `C` `C` | 按住 `Cmd`，按 `C` `C` | 中文（简体），不管输入是什么语言；PR、deadline 这类常用英文术语可以保留 |
+| 按住 `Ctrl`，按 `C` `E` | 按住 `Cmd`，按 `C` `E` | 英文，不管输入是什么语言 |
 
-仅支持 Windows。设计见 [../DESIGN.md](../DESIGN.md)。
+支持 Windows 和 macOS。下文以 Windows 的 `Ctrl` 为例，macOS 上换成 `Cmd`（全选、复制、粘贴、撤销都一样）；唯一的例外是退出程序：两个平台都在本窗口按 `Ctrl+C`。设计见 [../DESIGN.md](../DESIGN.md)。
 
 ## 安装
 
 需要 Python 3.11+。
+
+Windows：
 
 ```powershell
 cd paraphrase-hotkey
@@ -20,10 +22,28 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+macOS：
+
+```bash
+cd paraphrase_hotkey
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### macOS 权限
+
+监听和拦截全局按键、模拟 `Cmd+V` 都需要 **辅助功能** 权限。权限是给启动程序的那个应用（终端、iTerm2、VS Code 等），不是给 Python。
+
+1. 第一次运行 `python main.py` 时，系统会弹出授权提示；也可以手动打开 系统设置（macOS 12 叫“系统偏好设置”）→ 隐私与安全性 → 辅助功能，打开对应终端的开关。
+2. 完全退出并重新打开这个终端，再运行。
+3. 如果启动后提示“键盘监听已意外停止”，再把终端加到同一页面的 **输入监控** 里。
+
 ## 配置
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.example .env   # Windows
+cp .env.example .env          # macOS
 ```
 
 编辑 `.env`，填入 `GEMINI_API_KEY`（在 https://aistudio.google.com 的 API keys 页面创建）。其余项说明见 `.env.example`：
@@ -54,14 +74,14 @@ python main.py
 2026-10-14 12:00:09,876 in=42 ms=10012 result=failed reason=网络错误或超时（ReadTimeout）
 ```
 
-失败时会响一次系统提示音，原文不会被改动。
+失败时会响一次系统提示音（macOS 上是 Basso），原文不会被改动。
 
 ### 分步自测脚本
 
 | 命令 | 作用 |
 |---|---|
 | `python paraphrase.py --en "嗯 那个 我们明天 sync 一下"` | 只调 Gemini，打印改写结果（`--zh` 中文，默认；`--en` 英文） |
-| `python clipboard_io.py` | 3 秒后在焦点窗口粘贴一行测试文字，然后恢复剪贴板 |
+| `python clipboard_io.py` | 3 秒后在焦点窗口粘贴一行测试文字，然后恢复剪贴板（macOS 需要先授予辅助功能权限） |
 | `python hotkey.py` | 在其他窗口按 `Ctrl+C C` / `Ctrl+C E`，控制台打印 `triggered c` / `triggered e` |
 | `python -m pytest` | 单元测试（不调用真实 Gemini） |
 
@@ -71,7 +91,9 @@ python main.py
 - 唯一的例外：组合里的那一下 `Ctrl+E` 会被吞掉（包括长按重复和松开），所以目标应用不会执行自己的 `Ctrl+E` 功能。单独按 `Ctrl+E`，或者超过 400 ms 才按，都照常传给应用。
 - 组合必须以 `Ctrl+C` 开头：`Ctrl+E E`、`Ctrl+E C` 都不会触发。
 - 程序自己模拟的 `Ctrl+V` 是注入事件，热键监听会忽略。
-- 粘贴前会等你松开 `Ctrl`（最多 2 秒）；如果请求期间你切换了前台窗口，就不粘贴，避免贴到别的地方。
+- macOS 上按物理键位识别 `C` / `E`，不受键盘布局和中文输入法影响；`Cmd+Shift+C`、`Cmd+Option+C` 这类带其他修饰键的组合不算。
+- macOS 上组合里被吞掉的是 `Cmd+E`（很多应用里是“用所选内容查找”）。
+- 粘贴前会等你松开 `Ctrl`（最多 2 秒）；如果请求期间你切换了前台窗口，就不粘贴，避免贴到别的地方。macOS 上按最前面的普通窗口判断，不需要“屏幕录制”权限。
 - 粘贴约 150 ms 后把原文写回剪贴板，所以剪贴板里不会留下改写结果。
 - 改写结果与原文相同时不粘贴。
 - 改写风格参考 ASD-STE100 简化技术英语，中文同样适用：短句（英文约 25 词、中文约 40 字以内），一句一个意思，结论放前面；说清谁做了什么，用主动语态；步骤写成以动词开头的编号列表；不用 circle back、leverage、对齐、抓手这类空泛说法；避免长串名词堆叠。规则写在 `paraphrase.py` 的 `_PROMPT_TEMPLATE` 里。
@@ -82,9 +104,10 @@ python main.py
 
 ## 已知限制
 
-- **终端窗口不适用**：终端里 `Ctrl+C` 是中断信号。
-- **`Ctrl+C E` 里的 `E` 是在系统键盘钩子里吞掉的**：钩子对提权窗口无效（见上一条）；另外，如果别的软件也装了键盘钩子并且排在前面，它们仍可能先看到这一下 `Ctrl+E`。
-- **管理员权限窗口**：普通权限的进程无法向提权窗口注入按键，需以相同权限运行本程序。
+- **终端窗口不适用（Windows）**：终端里 `Ctrl+C` 是中断信号。macOS 终端里 `Cmd+C` 是复制，可以用。
+- **`Ctrl+C E` 里的 `E` 是在系统键盘钩子里吞掉的**：钩子对提权窗口无效（见下一条）；另外，如果别的软件也装了键盘钩子并且排在前面，它们仍可能先看到这一下 `Ctrl+E`。
+- **管理员权限窗口（Windows）**：普通权限的进程无法向提权窗口注入按键，需以相同权限运行本程序。
+- **安全输入（macOS）**：密码框、开启了“安全键盘输入”的终端等处于安全输入状态时，系统不把按键交给其他程序，热键不会触发。
 - **富文本输入框**（Teams、微信等）：粘贴可能带格式或触发应用自身的粘贴处理。
 - **撤销行为由目标应用决定**：个别应用把“替换”拆成两步撤销。
 - **免费层有速率限制**：以 AI Studio 显示的限额为准。

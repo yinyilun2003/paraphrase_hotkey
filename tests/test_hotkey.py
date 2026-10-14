@@ -270,3 +270,77 @@ def test_event_filter_never_lets_pynput_dispatch_and_survives_errors():
     lst._listener = SimpleNamespace(suppress_event=lambda: None)
     assert lst._win32_event_filter(DOWN, ev(VK_CTRL)) is False
     assert lst._win32_event_filter(DOWN, object()) is False  # 坏数据不抛异常
+
+
+# ---------------------------------------------------------------------------
+# HotkeyListener._mac_filter：用 Quartz 事件的字段驱动（不需要真的在 macOS 上）
+# ---------------------------------------------------------------------------
+
+M_DOWN, M_UP, M_FLAGS = 10, 11, 12
+KC_C, KC_E, KC_V = 0x08, 0x0E, 0x09
+CMD, SHIFT = 0x100000, 0x20000
+
+
+def mac(lst, event_type, keycode=0, flags=CMD, injected=False):
+    return lst._mac_filter(event_type, keycode, flags, injected)
+
+
+def test_mac_cmd_c_c_triggers_and_swallows_nothing():
+    lst, rec = make_listener()
+    swallowed = [mac(lst, M_FLAGS), mac(lst, M_DOWN, KC_C), mac(lst, M_UP, KC_C),
+                 mac(lst, M_DOWN, KC_C), mac(lst, M_UP, KC_C), mac(lst, M_FLAGS, flags=0)]
+    assert rec.fired.wait(1.0)
+    assert rec.letters == [C]
+    assert not any(swallowed)
+
+
+def test_mac_cmd_c_e_swallows_only_that_e():
+    lst, rec = make_listener()
+    assert not mac(lst, M_FLAGS)
+    assert not mac(lst, M_DOWN, KC_C)
+    assert not mac(lst, M_UP, KC_C)
+    assert mac(lst, M_DOWN, KC_E)
+    assert mac(lst, M_DOWN, KC_E)            # 长按重复
+    assert mac(lst, M_UP, KC_E, flags=0)     # 先松开 Cmd 再松开 E，也吞掉
+    assert rec.fired.wait(1.0)
+    assert rec.letters == [E]
+    assert not mac(lst, M_DOWN, KC_E)
+    assert not mac(lst, M_UP, KC_E)
+
+
+def test_mac_cmd_state_read_from_key_event_flags():
+    # 没收到 flagsChanged（比如启动时 Cmd 已经按着）也能识别
+    lst, rec = make_listener()
+    for ev_type, kc in [(M_DOWN, KC_C), (M_UP, KC_C), (M_DOWN, KC_C)]:
+        mac(lst, ev_type, kc)
+    assert rec.fired.wait(1.0)
+    assert rec.letters == [C]
+
+
+def test_mac_c_without_cmd_does_not_count():
+    lst, rec = make_listener()
+    for ev_type, kc, flags in [(M_DOWN, KC_C, 0), (M_UP, KC_C, 0), (M_DOWN, KC_C, CMD)]:
+        mac(lst, ev_type, kc, flags)
+    assert not rec.fired.is_set()
+
+
+def test_mac_extra_modifier_does_not_count():
+    lst, rec = make_listener()
+    for ev_type, kc, flags in [(M_DOWN, KC_C, CMD), (M_UP, KC_C, CMD),
+                               (M_DOWN, KC_C, CMD | SHIFT), (M_UP, KC_C, CMD | SHIFT)]:
+        mac(lst, ev_type, kc, flags)
+    assert not rec.fired.is_set()
+
+
+def test_mac_ignores_injected_events():
+    lst, rec = make_listener()
+    for ev_type, kc in [(M_FLAGS, 0), (M_DOWN, KC_C), (M_UP, KC_C), (M_DOWN, KC_C), (M_DOWN, KC_E)]:
+        assert not mac(lst, ev_type, kc, injected=True)
+    assert not rec.fired.is_set()
+
+
+def test_mac_other_key_between_resets():
+    lst, rec = make_listener()
+    for ev_type, kc in [(M_DOWN, KC_C), (M_UP, KC_C), (M_DOWN, KC_V), (M_UP, KC_V), (M_DOWN, KC_C)]:
+        mac(lst, ev_type, kc)
+    assert not rec.fired.is_set()

@@ -1,17 +1,17 @@
-"""入口：加载配置、启动监听。Ctrl+C C / Ctrl+C E 把选中文字原地替换成中文 / 英文改写结果。"""
+"""入口：加载配置、启动监听。Ctrl+C C / Ctrl+C E（macOS 上是 Cmd+C C / Cmd+C E）把选中文字原地替换成中文 / 英文改写结果。"""
 
 from __future__ import annotations
 
 import logging
 import statistics
+import subprocess
 import sys
 import threading
 import time
-import winsound
 
 import clipboard_io
 from config import Config, ConfigError, load_config
-from hotkey import HotkeyListener
+from hotkey import IS_MAC, MOD_NAME, HotkeyListener, mac_accessibility_trusted
 from paraphrase import ParaphraseError, paraphrase
 
 log = logging.getLogger("paraphrase-hotkey")
@@ -71,7 +71,7 @@ class App:
             return
 
         if not clipboard_io.wait_ctrl_released():
-            self._fail(t0, in_chars, "Ctrl 一直未松开，未粘贴")
+            self._fail(t0, in_chars, f"{MOD_NAME} 一直未松开，未粘贴")
             return
         if clipboard_io.foreground_window() != hwnd:
             self._fail(t0, in_chars, "窗口已切换，未粘贴")
@@ -106,7 +106,11 @@ def _ms(t0: float) -> int:
 
 def _beep() -> None:
     try:
-        winsound.MessageBeep()
+        if IS_MAC:
+            subprocess.Popen(["afplay", "/System/Library/Sounds/Basso.aiff"])
+        else:
+            import winsound
+            winsound.MessageBeep()
     except Exception:
         pass
 
@@ -121,16 +125,20 @@ def main() -> int:
         log.error("配置错误：%s", e)
         return 2
 
+    if IS_MAC and not mac_accessibility_trusted():
+        log.error("没有“辅助功能”权限：请在 系统设置 → 隐私与安全性 → 辅助功能 里允许当前终端，然后重启终端再运行")
+        return 2
+
     app = App(cfg)
     listener = HotkeyListener(cfg.double_press_window_ms, app.on_trigger)
     listener.start()
-    log.info("已启动（模型 %s）。在任意文本框 Ctrl+A 后快速连按两次 Ctrl+C 改写成中文，"
-             "按 Ctrl+C 再按 Ctrl+E 改写成英文；"
-             "在本窗口按 Ctrl+C 退出。", cfg.model)
+    log.info("已启动（模型 %s）。在任意文本框 %s+A 后快速连按两次 %s+C 改写成中文，"
+             "按 %s+C 再按 %s+E 改写成英文；"
+             "在本窗口按 Ctrl+C 退出。", cfg.model, *[MOD_NAME] * 4)
     try:
         while listener.is_alive():
             listener.join(0.5)
-        log.error("键盘监听已意外停止")
+        log.error("键盘监听已意外停止%s", "（macOS 上请检查“辅助功能”和“输入监控”权限）" if IS_MAC else "")
     except KeyboardInterrupt:
         pass
     finally:
